@@ -2,7 +2,10 @@ import requests
 import os
 
 API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
-headers = {"Authorization": f"Bearer {os.getenv('HF_API_KEY')}"}
+
+headers = {
+    "Authorization": f"Bearer {os.getenv('HF_API_KEY')}"
+}
 
 def query_llm(prompt):
     response = requests.post(
@@ -11,7 +14,12 @@ def query_llm(prompt):
         json={"inputs": prompt}
     )
 
+    if response.status_code != 200:
+        return f"API Error: {response.text}"
+
+    data = response.json()
+
     try:
-        return response.json()[0]["generated_text"]
+        return data[0]["generated_text"]
     except:
-        return "Error generating response"
+        return str(data)

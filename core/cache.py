@@ -23,3 +23,7 @@ def add_to_cache(query, response):
     index.add(emb)
     stored_data.append((query, response))
     
+def clear_cache():
+    global index, stored_data
+    index.reset()
+    stored_data = []
