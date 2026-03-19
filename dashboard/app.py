@@ -1,3 +1,45 @@
+import uuid
+from core.db import create_user, get_user_by_name, update_api_key
+
+# ----------- SESSION -----------
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+# ----------- AUTH UI -----------
+if not st.session_state.user:
+    st.title("🔐 Welcome to OptiLLM")
+
+    tab1, tab2 = st.tabs(["Login", "Signup"])
+
+    # -------- LOGIN --------
+    with tab1:
+        name = st.text_input("Username")
+
+        if st.button("Login"):
+            user = get_user_by_name(name)
+            if user:
+                st.session_state.user = user
+                st.success("Logged in successfully")
+                st.rerun()
+            else:
+                st.error("User not found")
+
+    # -------- SIGNUP --------
+    with tab2:
+        new_name = st.text_input("Create Username")
+
+        if st.button("Signup"):
+            if new_name:
+                api_key = str(uuid.uuid4())
+                user = create_user(new_name, api_key)
+                st.session_state.user = user
+                st.success(f"Account created! Your API Key: {api_key}")
+                st.rerun()
+            else:
+                st.error("Enter username")
+
+    st.stop()
+
 import sys
 import os
 
@@ -47,10 +89,30 @@ Smart routing + caching + fallback system for AI apps.
 </div>
 """, unsafe_allow_html=True)
 
+user = st.session_state.user
+
+st.sidebar.title("👤 Account")
+st.sidebar.write(f"User: {user.name}")
+
+# Show API key
+st.sidebar.code(user.api_key, language="text")
+
+# Regenerate key
+if st.sidebar.button("🔄 Regenerate API Key"):
+    new_key = str(uuid.uuid4())
+    update_api_key(user.id, new_key)
+    st.session_state.user.api_key = new_key
+    st.success("API Key updated")
+    st.rerun()
+
+# Logout
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.user = None
+    st.rerun()
+
 # ----------- PLAYGROUND -----------
 st.subheader("🧪 Playground")
-
-api_key = st.text_input("API Key", type="password")
+api_key = st.session_state.user.api_key
 prompt = st.text_area("Enter your prompt")
 
 if st.button("Run Query"):

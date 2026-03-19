@@ -2,6 +2,8 @@ from sqlalchemy import create_engine, Column, String, Float, Boolean, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 import uuid
 
+from streamlit import user
+
 engine = create_engine("sqlite:///optillm.db")
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
@@ -23,3 +25,25 @@ class Usage(Base):
 
 def init_db():
     Base.metadata.create_all(engine)
+    def create_user(name, api_key):
+        db = SessionLocal()
+        user = User(name=name, api_key=api_key)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        db.close()
+    return user
+
+def get_user_by_name(name):
+    db = SessionLocal()
+    user = db.query(User).filter(User.name == name).first()
+    db.close()
+    return user
+
+def update_api_key(user_id, new_key):
+    db = SessionLocal()
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        user.api_key = new_key
+        db.commit()
+    db.close()
