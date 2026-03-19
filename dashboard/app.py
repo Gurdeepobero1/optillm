@@ -1,7 +1,6 @@
 import sys
 import os
 
-# ✅ FIX PATH (CRITICAL)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import streamlit as st
@@ -22,9 +21,9 @@ if "user" not in st.session_state:
     st.session_state.user = None
 
 # ---------- AUTH ----------
-def create_user(name):
+def create_user(name, api_key):
     db = SessionLocal()
-    user = User(name=name, api_key=str(uuid.uuid4()))
+    user = User(name=name, api_key=api_key)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -37,12 +36,6 @@ def get_user(name):
     db.close()
     return user
 
-def regenerate_key(user):
-    db = SessionLocal()
-    user.api_key = str(uuid.uuid4())
-    db.commit()
-    db.close()
-
 # ---------- LOGIN ----------
 if not st.session_state.user:
     st.title("🔐 Welcome to OptiLLM")
@@ -51,6 +44,7 @@ if not st.session_state.user:
 
     with tab1:
         name = st.text_input("Username")
+
         if st.button("Login"):
             user = get_user(name)
             if user:
@@ -61,14 +55,16 @@ if not st.session_state.user:
 
     with tab2:
         new_name = st.text_input("Create Username")
+        user_api_key = st.text_input("Enter Your Sarvam API Key", type="password")
+
         if st.button("Signup"):
-            if new_name:
-                user = create_user(new_name)
+            if new_name and user_api_key:
+                user = create_user(new_name, user_api_key)
                 st.session_state.user = user
-                st.success(f"API Key: {user.api_key}")
+                st.success("Account created successfully!")
                 st.rerun()
             else:
-                st.error("Enter username")
+                st.error("Fill all fields")
 
     st.stop()
 
@@ -77,11 +73,6 @@ user = st.session_state.user
 # ---------- SIDEBAR ----------
 st.sidebar.title("👤 Account")
 st.sidebar.write(user.name)
-st.sidebar.code(user.api_key)
-
-if st.sidebar.button("🔄 Regenerate Key"):
-    regenerate_key(user)
-    st.rerun()
 
 if st.sidebar.button("Logout"):
     st.session_state.user = None
@@ -93,6 +84,7 @@ st.title("🚀 OptiLLM")
 prompt = st.text_area("Enter prompt")
 
 if st.button("Run Query"):
+
     start = time.time()
 
     cached = search_cache(prompt)
@@ -108,25 +100,31 @@ if st.button("Run Query"):
         db.close()
 
     else:
-        answer = query_llm(prompt)
+        with st.spinner("Processing... ⚡"):
+            answer = query_llm(prompt, user.api_key)
+
         latency = time.time() - start
 
-        add_to_cache(prompt, answer)
+        if "Error" not in answer:
+            add_to_cache(prompt, answer)
 
         st.success("✅ Response")
         st.write(answer)
 
+        # cost estimation
+        cost = len(prompt) * 0.00001
+
         db = SessionLocal()
-        db.add(Usage(user_id=user.id, query=prompt, latency=latency, cost=0.001, cached=False))
+        db.add(Usage(user_id=user.id, query=prompt, latency=latency, cost=cost, cached=False))
         db.commit()
         db.close()
 
 # ---------- METRICS ----------
 db = SessionLocal()
-data = db.query(Usage).all()
+data = db.query(Usage).filter(Usage.user_id == user.id).all()
 db.close()
 
-st.subheader("📊 Metrics")
+st.subheader("📊 Your Metrics")
 
 col1, col2, col3 = st.columns(3)
 
@@ -139,10 +137,10 @@ baseline = len(data) * 0.001
 actual = sum(d.cost for d in data)
 
 savings = ((baseline - actual) / baseline * 100) if baseline else 0
-st.success(f"🚀 {round(savings,2)}% cost saved")
+st.success(f"🚀 You saved {round(savings,2)}% cost")
 
 # ---------- LOGS ----------
-st.subheader("📜 Logs")
+st.subheader("📜 Your Activity")
 
 for d in reversed(data[-5:]):
     st.write({

@@ -1,26 +1,16 @@
 import requests
-import os
-from dotenv import load_dotenv
-from transformers import pipeline
 
-load_dotenv()
-
-# SARVAM API
 SARVAM_URL = "https://api.sarvam.ai/v1/chat/completions"
 
-headers = {
-    "Authorization": f"Bearer {os.getenv('SARVAM_API_KEY')}",
-    "Content-Type": "application/json"
-}
-
-# Local fallback
-local_model = pipeline("text-generation", model="distilgpt2")
-
-def query_llm(prompt):
-    # --- TRY SARVAM FIRST ---
+def query_llm(prompt, api_key):
     try:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
         payload = {
-            "model": "sarvam-m",  # or latest available model
+            "model": "sarvam-m",
             "messages": [
                 {"role": "user", "content": prompt}
             ]
@@ -32,11 +22,7 @@ def query_llm(prompt):
             data = response.json()
             return data["choices"][0]["message"]["content"]
 
-        print("Sarvam failed:", response.text)
+        return f"API Error: {response.text}"
 
     except Exception as e:
-        print("Sarvam exception:", str(e))
-
-    # --- FALLBACK ---
-    result = local_model(prompt, max_length=100, num_return_sequences=1)
-    return result[0]["generated_text"]
+        return f"Exception: {str(e)}"
