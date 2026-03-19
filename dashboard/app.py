@@ -1,3 +1,7 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from core.llm import query_llm
 from core.cache import search_cache, add_to_cache
 from core.router import select_model
