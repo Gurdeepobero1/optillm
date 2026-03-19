@@ -1,3 +1,9 @@
+from core.llm import query_llm
+from core.cache import search_cache, add_to_cache
+from core.router import select_model
+from core.auth import get_user
+from core.db import SessionLocal, Usage
+import time
 import sys
 import os
 
@@ -44,20 +50,57 @@ api_key = st.text_input("API Key", type="password")
 prompt = st.text_area("Enter your prompt")
 
 if st.button("Run Query"):
-    with st.spinner("Processing... ⚡"):
-        response = requests.post(
-            "http://127.0.0.1:8000/ask",
-            headers={"x-api-key": api_key},
-            json={"prompt": prompt}
-        )
-        data = response.json()
 
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.write("### Response")
-    st.write(data.get("response"))
-    st.markdown('</div>', unsafe_allow_html=True)
+    user = get_user(api_key)
 
-    st.json(data)
+    if not user:
+        st.error("Invalid API Key")
+
+    else:
+        start = time.time()
+
+        cached = search_cache(prompt)
+
+        if cached:
+            latency = time.time() - start
+
+            st.success("⚡ Cache Hit")
+            st.write(cached)
+
+            db = SessionLocal()
+            db.add(Usage(
+                user_id=user.id,
+                query=prompt,
+                latency=latency,
+                cost=0,
+                cached=True
+            ))
+            db.commit()
+            db.close()
+
+        else:
+            with st.spinner("Processing... ⚡"):
+                model = select_model(prompt)
+                answer = query_llm(prompt)
+
+            latency = time.time() - start
+
+            if "Error" not in answer:
+                add_to_cache(prompt, answer)
+
+            st.success("✅ Response")
+            st.write(answer)
+
+            db = SessionLocal()
+            db.add(Usage(
+                user_id=user.id,
+                query=prompt,
+                latency=latency,
+                cost=0.001,
+                cached=False
+            ))
+            db.commit()
+            db.close()
 
 # ----------- METRICS -----------
 st.subheader("📊 Metrics")
