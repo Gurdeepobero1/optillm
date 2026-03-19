@@ -6,4 +6,3 @@ requests
 python-dotenv
 transformers
 torch
-sentence-transformers
