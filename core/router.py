@@ -7,3 +7,8 @@ def select_model(query: str):
         return "smart-model"
     else:
         return "balanced-model"
+    
+def select_model(prompt):
+    if len(prompt) < 50:
+        return "fast"
+    return "smart"
