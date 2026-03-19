@@ -1,217 +1,152 @@
-import uuid
-from core.db import create_user, get_user_by_name, update_api_key
+import sys
+import os
 
-# ----------- SESSION -----------
+# ✅ FIX PATH (CRITICAL)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+import streamlit as st
+import time
+import uuid
+
+from core.llm import query_llm
+from core.cache import search_cache, add_to_cache
+from core.router import select_model
+from core.db import SessionLocal, Usage, User, init_db
+
+init_db()
+
+st.set_page_config(page_title="OptiLLM", layout="wide")
+
+# ---------- SESSION ----------
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ----------- AUTH UI -----------
+# ---------- AUTH ----------
+def create_user(name):
+    db = SessionLocal()
+    user = User(name=name, api_key=str(uuid.uuid4()))
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    db.close()
+    return user
+
+def get_user(name):
+    db = SessionLocal()
+    user = db.query(User).filter(User.name == name).first()
+    db.close()
+    return user
+
+def regenerate_key(user):
+    db = SessionLocal()
+    user.api_key = str(uuid.uuid4())
+    db.commit()
+    db.close()
+
+# ---------- LOGIN ----------
 if not st.session_state.user:
     st.title("🔐 Welcome to OptiLLM")
 
     tab1, tab2 = st.tabs(["Login", "Signup"])
 
-    # -------- LOGIN --------
     with tab1:
         name = st.text_input("Username")
-
         if st.button("Login"):
-            user = get_user_by_name(name)
+            user = get_user(name)
             if user:
                 st.session_state.user = user
-                st.success("Logged in successfully")
                 st.rerun()
             else:
                 st.error("User not found")
 
-    # -------- SIGNUP --------
     with tab2:
         new_name = st.text_input("Create Username")
-
         if st.button("Signup"):
             if new_name:
-                api_key = str(uuid.uuid4())
-                user = create_user(new_name, api_key)
+                user = create_user(new_name)
                 st.session_state.user = user
-                st.success(f"Account created! Your API Key: {api_key}")
+                st.success(f"API Key: {user.api_key}")
                 st.rerun()
             else:
                 st.error("Enter username")
 
     st.stop()
 
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from core.llm import query_llm
-from core.cache import search_cache, add_to_cache
-from core.router import select_model
-from core.auth import get_user
-from core.db import SessionLocal, Usage
-import time
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-import streamlit as st
-import requests
-from core.db import SessionLocal, Usage
-
-st.set_page_config(page_title="OptiLLM", layout="wide")
-
-# ----------- CUSTOM CSS (PREMIUM LOOK) -----------
-st.markdown("""
-<style>
-.card {
-    background-color: #1E1E1E;
-    padding: 20px;
-    border-radius: 12px;
-    margin-bottom: 15px;
-    box-shadow: 0 0 10px rgba(0,0,0,0.4);
-}
-.big-text {
-    font-size: 20px;
-    font-weight: 600;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ----------- HEADER -----------
-st.title("🚀 OptiLLM")
-st.caption("AI Cost Optimization Layer")
-
-st.markdown("""
-<div class="card">
-<b>Reduce LLM Cost & Latency</b><br>
-Smart routing + caching + fallback system for AI apps.
-</div>
-""", unsafe_allow_html=True)
-
 user = st.session_state.user
 
+# ---------- SIDEBAR ----------
 st.sidebar.title("👤 Account")
-st.sidebar.write(f"User: {user.name}")
+st.sidebar.write(user.name)
+st.sidebar.code(user.api_key)
 
-# Show API key
-st.sidebar.code(user.api_key, language="text")
-
-# Regenerate key
-if st.sidebar.button("🔄 Regenerate API Key"):
-    new_key = str(uuid.uuid4())
-    update_api_key(user.id, new_key)
-    st.session_state.user.api_key = new_key
-    st.success("API Key updated")
+if st.sidebar.button("🔄 Regenerate Key"):
+    regenerate_key(user)
     st.rerun()
 
-# Logout
-if st.sidebar.button("🚪 Logout"):
+if st.sidebar.button("Logout"):
     st.session_state.user = None
     st.rerun()
 
-# ----------- PLAYGROUND -----------
-st.subheader("🧪 Playground")
-api_key = st.session_state.user.api_key
-prompt = st.text_area("Enter your prompt")
+# ---------- MAIN ----------
+st.title("🚀 OptiLLM")
+
+prompt = st.text_area("Enter prompt")
 
 if st.button("Run Query"):
+    start = time.time()
 
-    user = get_user(api_key)
+    cached = search_cache(prompt)
 
-    if not user:
-        st.error("Invalid API Key")
+    if cached:
+        latency = time.time() - start
+        st.success("⚡ Cache Hit")
+        st.write(cached)
+
+        db = SessionLocal()
+        db.add(Usage(user_id=user.id, query=prompt, latency=latency, cost=0, cached=True))
+        db.commit()
+        db.close()
 
     else:
-        start = time.time()
+        answer = query_llm(prompt)
+        latency = time.time() - start
 
-        cached = search_cache(prompt)
+        add_to_cache(prompt, answer)
 
-        if cached:
-            latency = time.time() - start
+        st.success("✅ Response")
+        st.write(answer)
 
-            st.success("⚡ Cache Hit")
-            st.write(cached)
+        db = SessionLocal()
+        db.add(Usage(user_id=user.id, query=prompt, latency=latency, cost=0.001, cached=False))
+        db.commit()
+        db.close()
 
-            db = SessionLocal()
-            db.add(Usage(
-                user_id=user.id,
-                query=prompt,
-                latency=latency,
-                cost=0,
-                cached=True
-            ))
-            db.commit()
-            db.close()
-
-        else:
-            with st.spinner("Processing... ⚡"):
-                model = select_model(prompt)
-                answer = query_llm(prompt)
-
-            latency = time.time() - start
-
-            if "Error" not in answer:
-                add_to_cache(prompt, answer)
-
-            st.success("✅ Response")
-            st.write(answer)
-
-            db = SessionLocal()
-            db.add(Usage(
-                user_id=user.id,
-                query=prompt,
-                latency=latency,
-                cost=0.001,
-                cached=False
-            ))
-            db.commit()
-            db.close()
-
-# ----------- METRICS -----------
-st.subheader("📊 Metrics")
-
+# ---------- METRICS ----------
 db = SessionLocal()
 data = db.query(Usage).all()
 db.close()
 
-total_requests = len(data)
-cache_hits = len([d for d in data if d.cached])
-total_cost = sum([d.cost for d in data])
+st.subheader("📊 Metrics")
 
 col1, col2, col3 = st.columns(3)
 
-with col1:
-    st.markdown(f'<div class="card"><div class="big-text">📈 {total_requests}</div>Total Requests</div>', unsafe_allow_html=True)
+col1.metric("Requests", len(data))
+col2.metric("Cache Hits", len([d for d in data if d.cached]))
+col3.metric("Cost", f"${round(sum(d.cost for d in data),4)}")
 
-with col2:
-    st.markdown(f'<div class="card"><div class="big-text">⚡ {cache_hits}</div>Cache Hits</div>', unsafe_allow_html=True)
+# ---------- SAVINGS ----------
+baseline = len(data) * 0.001
+actual = sum(d.cost for d in data)
 
-with col3:
-    st.markdown(f'<div class="card"><div class="big-text">💰 ${round(total_cost,4)}</div>Total Cost</div>', unsafe_allow_html=True)
+savings = ((baseline - actual) / baseline * 100) if baseline else 0
+st.success(f"🚀 {round(savings,2)}% cost saved")
 
-# ----------- COST SAVINGS -----------
-baseline_cost = total_requests * 0.001
-
-if baseline_cost > 0:
-    savings = ((baseline_cost - total_cost) / baseline_cost) * 100
-else:
-    savings = 0
-
-st.markdown(f"""
-<div class="card">
-🚀 <b>You saved {round(savings,2)}% cost</b> using OptiLLM
-</div>
-""", unsafe_allow_html=True)
-
-# ----------- LOGS -----------
-st.subheader("📜 Recent Requests")
+# ---------- LOGS ----------
+st.subheader("📜 Logs")
 
 for d in reversed(data[-5:]):
-    st.markdown(f"""
-    <div class="card">
-    <b>Query:</b> {d.query}<br>
-    <b>Latency:</b> {round(d.latency,3)} sec<br>
-    <b>Cached:</b> {d.cached}
-    </div>
-    """, unsafe_allow_html=True)
+    st.write({
+        "query": d.query,
+        "latency": round(d.latency, 3),
+        "cached": d.cached
+    })
