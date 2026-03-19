@@ -1,25 +1,42 @@
 import requests
 import os
+from dotenv import load_dotenv
+from transformers import pipeline
 
-API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+load_dotenv()
+
+# SARVAM API
+SARVAM_URL = "https://api.sarvam.ai/v1/chat/completions"
 
 headers = {
-    "Authorization": f"Bearer {os.getenv('HF_API_KEY')}"
+    "Authorization": f"Bearer {os.getenv('SARVAM_API_KEY')}",
+    "Content-Type": "application/json"
 }
 
+# Local fallback
+local_model = pipeline("text-generation", model="distilgpt2")
+
 def query_llm(prompt):
-    response = requests.post(
-        API_URL,
-        headers=headers,
-        json={"inputs": prompt}
-    )
-
-    if response.status_code != 200:
-        return f"API Error: {response.text}"
-
-    data = response.json()
-
+    # --- TRY SARVAM FIRST ---
     try:
-        return data[0]["generated_text"]
-    except:
-        return str(data)
+        payload = {
+            "model": "sarvam-m",  # or latest available model
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
+        }
+
+        response = requests.post(SARVAM_URL, headers=headers, json=payload)
+
+        if response.status_code == 200:
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+        print("Sarvam failed:", response.text)
+
+    except Exception as e:
+        print("Sarvam exception:", str(e))
+
+    # --- FALLBACK ---
+    result = local_model(prompt, max_length=100, num_return_sequences=1)
+    return result[0]["generated_text"]

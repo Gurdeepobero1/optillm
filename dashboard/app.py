@@ -1,22 +1,40 @@
-import sys
-import os
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
 import streamlit as st
-from core.metrics import logs
+from core.db import SessionLocal, Usage
 
-st.title("🚀 OptiLLM Dashboard")
+st.set_page_config(page_title="OptiLLM", layout="wide")
 
-total_cost = sum([log["cost"] for log in logs])
-total_requests = len(logs)
-cache_hits = len([log for log in logs if log["cached"]])
+st.title("🚀 OptiLLM")
+st.subheader("LLM Optimization & Cost Intelligence Platform")
 
-st.metric("Total Requests", total_requests)
-st.metric("Total Cost", f"${total_cost:.4f}")
-st.metric("Cache Hits", cache_hits)
+# --- Fetch Data ---
+db = SessionLocal()
+data = db.query(Usage).all()
+db.close()
 
-st.write("### Logs")
+total_requests = len(data)
+cache_hits = len([d for d in data if d.cached])
+total_cost = sum([d.cost for d in data])
 
-for log in logs:
-    st.json(log)
+col1, col2, col3 = st.columns(3)
+
+col1.metric("📊 Total Requests", total_requests)
+col2.metric("⚡ Cache Hits", cache_hits)
+col3.metric("💰 Total Cost", f"${round(total_cost,4)}")
+
+# --- Logs ---
+st.divider()
+st.subheader("📜 Request Logs")
+st.sidebar.title("🔧 Controls")
+api_key = st.sidebar.text_input("API Key", type="password")
+
+query = st.sidebar.text_area("Enter Prompt")
+
+if st.sidebar.button("Send"):
+    st.write("Coming next: API playground")
+
+for d in reversed(data[-10:]):
+    st.container().write({
+        "query": d.query,
+        "latency": round(d.latency, 3),
+        "cached": d.cached
+    })
